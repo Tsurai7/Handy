@@ -22,6 +22,7 @@ SENSOR_RADIUS = 5
 CANVAS_SIZE = 400
 
 ESP32_IP = "http://192.168.0.4/capture"
+camera_connected = True
 
 last_sound_time = 0
 
@@ -74,7 +75,7 @@ def update_serial_port(port):
     try:
         ser = serial.Serial(port, BAUDRATE)
         print(f"Connected to serial port: {port}")
-        read_distance()  # Start reading distance when connected
+        read_distance()
     except serial.SerialException as e:
         messagebox.showerror("Serial Port Error", f"Could not open serial port {port}: {e}")
         print(f"Could not open serial port {port}: {e}")
@@ -125,6 +126,9 @@ def draw_objects(distance):
 
 
 def get_image_from_camera():
+    global camera_connected
+    if not camera_connected:
+        return None
     try:
         response = requests.get(ESP32_IP, timeout=5)
         if response.status_code == 200:
@@ -135,6 +139,7 @@ def get_image_from_camera():
             print(f"Failed to get image. Status code: {response.status_code}")
     except Exception as e:
         print(f"An error occurred: {e}")
+        camera_connected = False  # Установить флаг, если камера недоступна
     return None
 
 
