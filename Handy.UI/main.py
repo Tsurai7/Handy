@@ -1,12 +1,12 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 import serial
 import serial.tools.list_ports
 import pygame
 import time
 import requests
 import numpy as np
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw
 import cv2
 
 pygame.mixer.init()
@@ -76,6 +76,7 @@ def update_serial_port(port):
         print(f"Connected to serial port: {port}")
         read_distance()  # Start reading distance when connected
     except serial.SerialException as e:
+        messagebox.showerror("Serial Port Error", f"Could not open serial port {port}: {e}")
         print(f"Could not open serial port {port}: {e}")
 
 
@@ -85,11 +86,13 @@ def read_distance():
             if ser.in_waiting > 0:
                 distance = ser.readline().decode('utf-8').strip()
                 try:
-                    distance_value = int(distance)
-                    distance_label.config(
-                        text=f"Distance: {distance_value} cm")
-                    draw_objects(distance_value)
-                    play_sound()
+                    if distance.startswith("distance: "):
+                        distance_value = int(distance.split(": ")[1])
+                        distance_label.config(text=f"Distance: {distance_value} cm")
+                        draw_objects(distance_value)
+                        play_sound()
+                    else:
+                        print(f"Unexpected format: {distance}")
                 except ValueError:
                     print(f"Invalid distance received: {distance}")
         except Exception as e:
@@ -99,48 +102,31 @@ def read_distance():
 
 def draw_objects(distance):
     canvas.delete("all")
-
     sensor_x = CANVAS_SIZE / 2
     sensor_y = CANVAS_SIZE / 2
-    canvas.create_oval(
-        sensor_x - SENSOR_RADIUS,  # x1
-        sensor_y - SENSOR_RADIUS,  # y1
-        sensor_x + SENSOR_RADIUS,  # x2
-        sensor_y + SENSOR_RADIUS,  # y2
-        fill="blue",
-        tags="sensor"
-    )
+    canvas.create_oval(sensor_x - SENSOR_RADIUS, sensor_y - SENSOR_RADIUS,
+                       sensor_x + SENSOR_RADIUS, sensor_y + SENSOR_RADIUS,
+                       fill="blue", tags="sensor")
 
     scaled_distance = min(distance, MAX_DISTANCE)
-
-    object_y_position = sensor_y - (scaled_distance / MAX_DISTANCE) * (CANVAS_SIZE / 2)  # Scale to canvas height
-
+    object_y_position = sensor_y - (scaled_distance / MAX_DISTANCE) * (CANVAS_SIZE / 2)
     object_y_position = max(OBJECT_SIZE // 2, min(object_y_position, CANVAS_SIZE - OBJECT_SIZE // 2))
 
-    canvas.create_oval(
-        sensor_x - (OBJECT_SIZE / 2),  # x1
-        object_y_position - (OBJECT_SIZE / 2),  # y1
-        sensor_x + (OBJECT_SIZE / 2),  # x2
-        object_y_position + (OBJECT_SIZE / 2),  # y2
-        fill="red",
-        tags="object"
-    )
-
-    object_size_text = f"Object Size: {OBJECT_SIZE} px"
-    object_size_label.config(text=object_size_text)
+    canvas.create_oval(sensor_x - (OBJECT_SIZE / 2), object_y_position - (OBJECT_SIZE / 2),
+                       sensor_x + (OBJECT_SIZE / 2), object_y_position + (OBJECT_SIZE / 2),
+                       fill="red", tags="object")
+    object_size_label.config(text=f"Object Size: {OBJECT_SIZE} px")
 
     for i in range(1, 5):
         wave_radius = (scaled_distance / MAX_DISTANCE) * (CANVAS_SIZE / 2) * i / 4
-        canvas.create_oval(
-            sensor_x - wave_radius, sensor_y - wave_radius,
-            sensor_x + wave_radius, sensor_y + wave_radius,
-            outline='lightblue', width=2, tags='wave'
-        )
+        canvas.create_oval(sensor_x - wave_radius, sensor_y - wave_radius,
+                           sensor_x + wave_radius, sensor_y + wave_radius,
+                           outline='lightblue', width=2, tags='wave')
 
 
 def get_image_from_camera():
     try:
-        response = requests.get(ESP32_IP)
+        response = requests.get(ESP32_IP, timeout=5)
         if response.status_code == 200:
             image_array = np.array(bytearray(response.content), dtype=np.uint8)
             image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
@@ -156,15 +142,16 @@ def update_image():
     image = get_image_from_camera()
     if image is not None:
         detect_objects(image)
-
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
         img = Image.fromarray(image)
-        imgtk = ImageTk.PhotoImage(image=img)
+    else:
+        img = Image.new('RGB', (300, 300), color=(200, 200, 200))  # Placeholder for "No camera found"
+        draw = ImageDraw.Draw(img)
+        draw.text((75, 140), "No camera found", fill=(255, 0, 0))
 
-        camera_label.imgtk = imgtk
-        camera_label.configure(image=imgtk)
-
+    imgtk = ImageTk.PhotoImage(image=img)
+    camera_label.imgtk = imgtk
+    camera_label.configure(image=imgtk)
     root.after(100, update_image)
 
 
@@ -172,20 +159,17 @@ def detect_objects(image):
     blob = cv2.dnn.blobFromImage(image, 0.007843, (300, 300), 127.5)
     net.setInput(blob)
     detections = net.forward()
-
     height, width = image.shape[:2]
-
     for i in range(detections.shape[2]):
         confidence = detections[0, 0, i, 2]
-        if confidence > 0.2:  # Filter out weak detections
+        if confidence > 0.2:
             class_id = int(detections[0, 0, i, 1])
             box = detections[0, 0, i, 3:7] * np.array([width, height, width, height])
             (startX, startY, endX, endY) = box.astype("int")
-
-            # Draw the bounding box and label on the image
             label = f"{CLASS_NAMES[class_id]}: {confidence:.2f}"
             cv2.rectangle(image, (startX, startY), (endX, endY), (0, 255, 0), 2)
             cv2.putText(image, label, (startX, startY - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
 
 root = tk.Tk()
 root.geometry('1200x600')
@@ -193,12 +177,10 @@ root.title("Slider Serial Control with Distance Visualization and Camera Feed")
 
 port_label = ttk.Label(root, text="Select Serial Port:")
 port_label.grid(row=0, column=0, padx=10, pady=10)
-
 available_ports = [port.device for port in serial.tools.list_ports.comports()]
 port_combobox = ttk.Combobox(root, values=available_ports, state="readonly")
 port_combobox.set(SERIAL_PORT)
 port_combobox.grid(row=0, column=1, padx=10, pady=10)
-
 port_combobox.bind("<<ComboboxSelected>>", lambda event: update_serial_port(port_combobox.get()))
 
 distance_label = ttk.Label(root, text="Distance: ")
@@ -209,7 +191,6 @@ object_size_label.grid(row=6, column=0, columnspan=3, padx=10, pady=10)
 
 canvas = tk.Canvas(root, width=CANVAS_SIZE, height=CANVAS_SIZE, bg='green')
 canvas.grid(row=8, column=0, columnspan=3, padx=10, pady=10)
-
 canvas.create_oval(0, 0, CANVAS_SIZE, CANVAS_SIZE, fill='green', outline='black')
 
 for i in range(6):
@@ -221,7 +202,6 @@ camera_label = ttk.Label(root)
 camera_label.grid(row=0, column=3, rowspan=9, padx=10, pady=10)
 
 update_image()
-
 read_distance()
 
 try:
