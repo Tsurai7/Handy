@@ -21,9 +21,8 @@ MAX_DISTANCE = 200
 SENSOR_RADIUS = 5
 CANVAS_SIZE = 400
 
-ESP32_IP = "http://192.168.0.4/capture"
+camera_url = "http://192.168.0.4/capture"  # Default URL for the camera
 camera_connected = True
-
 last_sound_time = 0
 
 CLASS_NAMES = ["background", "aeroplane", "bicycle", "bird", "boat", "bottle", "bus",
@@ -130,7 +129,7 @@ def get_image_from_camera():
     if not camera_connected:
         return None
     try:
-        response = requests.get(ESP32_IP, timeout=5)
+        response = requests.get(camera_url, timeout=5)
         if response.status_code == 200:
             image_array = np.array(bytearray(response.content), dtype=np.uint8)
             image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
@@ -139,7 +138,7 @@ def get_image_from_camera():
             print(f"Failed to get image. Status code: {response.status_code}")
     except Exception as e:
         print(f"An error occurred: {e}")
-        camera_connected = False  # Установить флаг, если камера недоступна
+        camera_connected = False  # Set flag if camera is unavailable
     return None
 
 
@@ -176,9 +175,15 @@ def detect_objects(image):
             cv2.putText(image, label, (startX, startY - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
 
+def connect_camera():
+    global camera_url, camera_connected
+    camera_url = camera_url_entry.get()  # Update URL from entry field
+    camera_connected = True
+
+
 root = tk.Tk()
-root.geometry('1200x600')
-root.title("Slider Serial Control with Distance Visualization and Camera Feed")
+root.geometry('1240x600')
+root.title("Handy")
 
 port_label = ttk.Label(root, text="Select Serial Port:")
 port_label.grid(row=0, column=0, padx=10, pady=10)
@@ -198,13 +203,22 @@ canvas = tk.Canvas(root, width=CANVAS_SIZE, height=CANVAS_SIZE, bg='green')
 canvas.grid(row=8, column=0, columnspan=3, padx=10, pady=10)
 canvas.create_oval(0, 0, CANVAS_SIZE, CANVAS_SIZE, fill='green', outline='black')
 
+camera_url_label = ttk.Label(root, text="Camera URL:")
+camera_url_label.grid(row=0, column=3, padx=10, pady=10)
+camera_url_entry = ttk.Entry(root, width=30)
+camera_url_entry.insert(0, camera_url)  # Set initial value
+camera_url_entry.grid(row=0, column=4, padx=10, pady=10)
+
+connect_button = ttk.Button(root, text="Connect", command=connect_camera)
+connect_button.grid(row=0, column=5, padx=10, pady=10)
+
+camera_label = ttk.Label(root)
+camera_label.grid(row=1, column=3, rowspan=8, columnspan=3, padx=10, pady=10)
+
 for i in range(6):
     label = ttk.Label(root, text=f"Slider {i + 1}")
     label.grid(row=i + 1, column=0, padx=10, pady=5)
     create_slider(root, i, i + 1)
-
-camera_label = ttk.Label(root)
-camera_label.grid(row=0, column=3, rowspan=9, padx=10, pady=10)
 
 update_image()
 read_distance()
