@@ -43,8 +43,8 @@ def play_sound():
 def on_scale_change(slider_number, val):
     if ser and ser.is_open:
         value = int(float(val))
-        message = f"{slider_number} {value}\n"
-        ser.write(message.encode())
+        message = f"{slider_number-1} {value}"
+        ser.write((message + '\n').encode())
         print(f"Sent to serial: {message.strip()}")
 
 
