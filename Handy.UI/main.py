@@ -1,9 +1,9 @@
+import json
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import serial
 import serial.tools.list_ports
 import pygame
-import time
 import requests
 import numpy as np
 from PIL import Image, ImageTk, ImageDraw
@@ -129,6 +129,7 @@ def get_image_from_camera():
         camera_connected = False
     return None
 
+
 def update_image():
     """Update the camera image on the UI."""
     image = get_image_from_camera()
@@ -169,16 +170,71 @@ def connect_camera():
     camera_connected = True
 
 
+import json
+import time
+
+
+def execute_command(servo_number, angle):
+    """Sets a specified servo to a given angle and sends the command to the serial port."""
+    sliders[servo_number - 1].set(angle)
+    print(f"Servo {servo_number} set to angle {angle}")
+    on_scale_change(servo_number, angle)
+
+
+def load_commands_from_file():
+    """Open a file dialog to load commands from a JSON file and execute them."""
+    filename = filedialog.askopenfilename(
+        title="Select a JSON File",
+        filetypes=[("JSON Files", "*.json")]
+    )
+    if filename:
+        try:
+            load_commands_from_json(filename)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load commands from {filename}:\n{e}")
+
+
+def load_commands_from_json(filename):
+    """Load and execute servo commands and repeatable sequences from a JSON file."""
+    with open(filename, 'r') as file:
+        try:
+            data = json.load(file)
+        except json.JSONDecodeError:
+            messagebox.showerror("JSON Error", f"Error decoding JSON in file: {filename}")
+            return
+
+    for item in data.get("commands", []):  # Используем get для предотвращения ошибок
+        if "command" in item:
+            # Выполнение одиночной команды
+            servo_number = item["command"]["servo"]
+            angle = item["command"]["angle"]
+            execute_command(servo_number, angle)
+
+        elif "repeatable" in item:
+            # Выполнение повторяющейся последовательности
+            repeat_count = item["repeatable"]["repeats"]
+            sequence = item["repeatable"]["sequence"]
+
+            for _ in range(repeat_count):
+                for command in sequence:
+                    servo_number = command["servo"]
+                    angle = command["angle"]
+                    execute_command(servo_number, angle)
+                    time.sleep(0.5)  # Пауза между командами внутри последовательности
+
+        time.sleep(1)  # Пауза между одиночными командами или группами команд
+
+
 def increase_slider(slider_number):
     """Increase the specified slider's value by 2, up to a maximum of 180."""
     current_value = sliders[slider_number].get()
-    sliders[slider_number].set(min(180, current_value + 2))
+    sliders[slider_number].set(min(180, current_value + 7))
 
 
 def decrease_slider(slider_number):
     """Decrease the specified slider's value by 2, down to a minimum of 0."""
     current_value = sliders[slider_number].get()
-    sliders[slider_number].set(max(0, current_value - 2))
+    sliders[slider_number].set(max(0, current_value - 7))
 
 
 # Main GUI setup
@@ -215,6 +271,9 @@ ttk.Button(root, text="Connect", command=connect_camera).grid(row=0, column=5, p
 
 camera_label = ttk.Label(root)
 camera_label.grid(row=1, column=3, rowspan=8, columnspan=3, padx=10, pady=10)
+
+# Button to load JSON file
+ttk.Button(root, text="Load Commands from JSON File", command=load_commands_from_file).grid(row=0, column=2, padx=10, pady=10)
 
 # Create sliders and add to `sliders` list
 for i in range(6):
