@@ -19,9 +19,9 @@ CANVAS_SIZE = 400
 camera_url = "http://192.168.0.4/capture"
 
 # YOLOv4 model files
-YOLO_CONFIG = "yolov4.cfg"
-YOLO_WEIGHTS = "yolov4.weights"
-YOLO_CLASSES = "coco.names"
+YOLO_CONFIG = "../cam.ai/yolov4.cfg"
+YOLO_WEIGHTS = "../cam.ai/yolov4.weights"
+YOLO_CLASSES = "../cam.ai/coco.names"
 
 # Load YOLOv4 model
 net = cv2.dnn.readNet(YOLO_WEIGHTS, YOLO_CONFIG)
@@ -248,7 +248,7 @@ def load_commands_from_json(filename):
 root = tk.Tk()
 root.geometry("1920x1080")
 root.title("Handy")
-icon = tk.PhotoImage(file='icon.png')
+icon = tk.PhotoImage(file='../icon.png')
 root.iconphoto(True, icon)
 
 # UI elements for serial port, distance, and sliders
