@@ -1,7 +1,7 @@
 {
     "commands": [
-        { "command": { "servo": 1, "angle": 45 } },
-        { "command": { "servo": 2, "angle": 90 } },
+        { "servo": 1, "angle": 45 },
+        { "servo": 2, "angle": 90 },
         { "repeatable": {
             "repeats": 3,
             "sequence": [
@@ -10,7 +10,7 @@
                 { "servo": 3, "angle": 135 }
             ]
         }},
-        { "command": { "servo": 4, "angle": 180 } },
+        { "servo": 4, "angle": 180 },
         { "repeatable": {
             "repeats": 2,
             "sequence": [
