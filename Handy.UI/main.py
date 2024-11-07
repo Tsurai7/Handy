@@ -1,19 +1,15 @@
-import json
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import serial
 import serial.tools.list_ports
-import pygame
 import requests
 import numpy as np
 from PIL import Image, ImageTk, ImageDraw
 import cv2
-
-# Initialize pygame for sound
-pygame.mixer.init()
-beep_sound = pygame.mixer.Sound("beep.wav")
+import json
 
 # Constants
+current_distance = 0
 BAUDRATE = 9600
 SERIAL_PORT = '/dev/tty.wlan-debug'
 OBJECT_SIZE = 20
@@ -21,24 +17,26 @@ MAX_DISTANCE = 200
 SENSOR_RADIUS = 5
 CANVAS_SIZE = 400
 camera_url = "http://192.168.0.4/capture"
-CLASS_NAMES = ["background", "aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat",
-               "chair", "cow", "diningtable", "dog", "horse", "motorbike", "person", "pottedplant",
-               "sheep", "sofa", "train", "tvmonitor"]
+
+# YOLOv4 model files
+YOLO_CONFIG = "yolov4.cfg"
+YOLO_WEIGHTS = "yolov4.weights"
+YOLO_CLASSES = "coco.names"
+
+# Load YOLOv4 model
+net = cv2.dnn.readNet(YOLO_WEIGHTS, YOLO_CONFIG)
+layer_names = net.getLayerNames()
+output_layers = [layer_names[i - 1] for i in net.getUnconnectedOutLayers()]
+with open(YOLO_CLASSES, "r") as f:
+    CLASS_NAMES = [line.strip() for line in f.readlines()]
 
 # Global variables
 ser = None
 last_sound_time = 0
 camera_connected = True
-net = cv2.dnn.readNetFromCaffe('MobileNetSSD_deploy.prototxt', 'MobileNetSSD_deploy.caffemodel')
+
 sliders = []  # Store all sliders in a list for easier reference
 
-# Define functions
-def play_sound():
-    global last_sound_time
-    current_time = time.time()
-    if current_time - last_sound_time >= 1:
-        beep_sound.play()
-        last_sound_time = current_time
 
 def on_scale_change(slider_number, val):
     """Send slider change to serial if open."""
@@ -48,22 +46,45 @@ def on_scale_change(slider_number, val):
         ser.write((message + '\n').encode())
         print(f"Sent to serial: {message.strip()}")
 
+
 def create_slider(root, row, slider_number):
     """Create and return a labeled slider with a Tkinter Scale widget."""
     value_label = ttk.Label(root, text=f"Slider {slider_number} - Value: 90")
     value_label.grid(row=row + 1, column=2, padx=10)
-    slider = ttk.Scale(
-        root,
-        from_=0,
-        to=180,
-        orient="horizontal",
-        length=400,
-        command=lambda val: (on_scale_change(slider_number, val),
-                             value_label.config(text=f"Slider {slider_number} - Value: {int(float(val))}"))
-    )
-    slider.set(90)
+
+    if slider_number == 6:
+        slider = ttk.Scale(
+            root,
+            from_=0,
+            to=90,
+            orient="horizontal",
+            length=400,
+            command=lambda val: (on_scale_change(slider_number, val),
+                                 value_label.config(text=f"Slider {slider_number} - Value: {int(float(val))}"))
+        )
+        slider.set(90)
+    else:
+        slider = ttk.Scale(
+            root,
+            from_=0,
+            to=180,
+            orient="horizontal",
+            length=400,
+            command=lambda val: (on_scale_change(slider_number, val),
+                                 value_label.config(text=f"Slider {slider_number} - Value: {int(float(val))}"))
+        )
+        slider.set(90)
+
     slider.grid(row=row + 1, column=1, padx=10, pady=5)
     return slider
+
+
+def create_sliders():
+    """Create sliders and store them in a list for later reference."""
+    for i in range(1, 7):  # assuming you have 6 sliders
+        slider = create_slider(root, i, i)
+        sliders.append(slider)
+
 
 def update_serial_port(port):
     """Update serial port and read distance if connected."""
@@ -73,45 +94,72 @@ def update_serial_port(port):
     try:
         ser = serial.Serial(port, BAUDRATE)
         print(f"Connected to serial port: {port}")
-        read_distance()
+        get_distance_from_sensor()
     except serial.SerialException as e:
         messagebox.showerror("Serial Port Error", f"Could not open serial port {port}: {e}")
         print(f"Could not open serial port {port}: {e}")
 
-def read_distance():
-    """Read and update distance from the serial port."""
+
+def get_distance_from_sensor():
+    global current_distance
     if ser and ser.is_open:
         try:
             if ser.in_waiting > 0:
                 distance = ser.readline().decode('utf-8').strip()
                 if distance.startswith("distance: "):
                     distance_value = int(distance.split(": ")[1])
+                    current_distance = distance_value  # Store the distance
                     distance_label.config(text=f"Distance: {distance_value} cm")
-                    draw_objects(distance_value)
-                    play_sound()
         except Exception as e:
             print(f"Error reading distance: {e}")
-    root.after(100, read_distance)
+    root.after(100, get_distance_from_sensor)
 
-def draw_objects(distance):
-    """Draw detected objects on the canvas based on distance."""
-    canvas.delete("all")
-    sensor_x, sensor_y = CANVAS_SIZE / 2, CANVAS_SIZE / 2
-    canvas.create_oval(sensor_x - SENSOR_RADIUS, sensor_y - SENSOR_RADIUS,
-                       sensor_x + SENSOR_RADIUS, sensor_y + SENSOR_RADIUS,
-                       fill="blue", tags="sensor")
-    scaled_distance = min(distance, MAX_DISTANCE)
-    object_y_position = max(OBJECT_SIZE // 2, min(sensor_y - (scaled_distance / MAX_DISTANCE) * (CANVAS_SIZE / 2),
-                                                  CANVAS_SIZE - OBJECT_SIZE // 2))
-    canvas.create_oval(sensor_x - (OBJECT_SIZE / 2), object_y_position - (OBJECT_SIZE / 2),
-                       sensor_x + (OBJECT_SIZE / 2), object_y_position + (OBJECT_SIZE / 2),
-                       fill="red", tags="object")
-    object_size_label.config(text=f"Object Size: {OBJECT_SIZE} px")
-    for i in range(1, 5):
-        wave_radius = (scaled_distance / MAX_DISTANCE) * (CANVAS_SIZE / 2) * i / 4
-        canvas.create_oval(sensor_x - wave_radius, sensor_y - wave_radius,
-                           sensor_x + wave_radius, sensor_y + wave_radius,
-                           outline='lightblue', width=2, tags='wave')
+
+def detect_objects(image, distance):
+    """Detect objects in the image using YOLOv4 and display color and distance information."""
+    blob = cv2.dnn.blobFromImage(image, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
+    net.setInput(blob)
+    detections = net.forward(output_layers)
+
+    height, width, channels = image.shape
+    boxes, confidences, class_ids = [], [], []
+
+    for out in detections:
+        for detection in out:
+            scores = detection[5:]
+            class_id = np.argmax(scores)
+            confidence = scores[class_id]
+            if confidence > 0.5:  # Confidence threshold
+                center_x = int(detection[0] * width)
+                center_y = int(detection[1] * height)
+                w = int(detection[2] * width)
+                h = int(detection[3] * height)
+
+                x = int(center_x - w / 2)
+                y = int(center_y - h / 2)
+
+                boxes.append([x, y, w, h])
+                confidences.append(float(confidence))
+                class_ids.append(class_id)
+
+    # Apply Non-Maximum Suppression (NMS)
+    indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
+
+    # Indices is a tuple, so we need to handle it accordingly
+    if len(indices) > 0:
+        indices = indices.flatten()  # Flatten if it's not empty
+
+        for i in indices:
+            x, y, w, h = boxes[i]
+            label = f"{CLASS_NAMES[class_ids[i]]}: {confidences[i]:.2f}, Dist: {distance} cm"
+
+            # Draw bounding box and label
+            color = (0, 255, 0)
+            cv2.rectangle(image, (x, y), (x + w, y + h), color, 2)
+            cv2.putText(image, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+    return image
+
 
 
 def get_image_from_camera():
@@ -134,33 +182,17 @@ def update_image():
     """Update the camera image on the UI."""
     image = get_image_from_camera()
     if image is not None:
-        detect_objects(image)
+        image = detect_objects(image, current_distance)  # Use the stored global distance
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         img = Image.fromarray(image)
     else:
-        img = Image.new('RGB', (300, 300), color=(200, 200, 200))
+        img = Image.new('RGB', (640, 480), color=(200, 200, 200))
         ImageDraw.Draw(img).text((75, 140), "No camera found", fill=(255, 0, 0))
+
     imgtk = ImageTk.PhotoImage(image=img)
     camera_label.imgtk = imgtk
     camera_label.configure(image=imgtk)
-    root.after(100, update_image)
-
-
-def detect_objects(image):
-    """Detect objects in the image using a pre-trained DNN model."""
-    blob = cv2.dnn.blobFromImage(image, 0.007843, (300, 300), 127.5)
-    net.setInput(blob)
-    detections = net.forward()
-    height, width = image.shape[:2]
-    for i in range(detections.shape[2]):
-        confidence = detections[0, 0, i, 2]
-        if confidence > 0.2:
-            class_id = int(detections[0, 0, i, 1])
-            box = detections[0, 0, i, 3:7] * np.array([width, height, width, height])
-            (startX, startY, endX, endY) = box.astype("int")
-            label = f"{CLASS_NAMES[class_id]}: {confidence:.2f}"
-            cv2.rectangle(image, (startX, startY), (endX, endY), (0, 255, 0), 2)
-            cv2.putText(image, label, (startX, startY - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+    root.after(100, update_image)  # Update image every 100ms
 
 
 def connect_camera():
@@ -168,10 +200,6 @@ def connect_camera():
     global camera_url, camera_connected
     camera_url = camera_url_entry.get()
     camera_connected = True
-
-
-import json
-import time
 
 
 def execute_command(servo_number, angle):
@@ -203,46 +231,23 @@ def load_commands_from_json(filename):
             messagebox.showerror("JSON Error", f"Error decoding JSON in file: {filename}")
             return
 
-    for item in data.get("commands", []):  # Используем get для предотвращения ошибок
+    for item in data.get("commands", []):
         if "command" in item:
-            # Выполнение одиночной команды
             servo_number = item["command"]["servo"]
             angle = item["command"]["angle"]
             execute_command(servo_number, angle)
 
         elif "repeatable" in item:
-            # Выполнение повторяющейся последовательности
             repeat_count = item["repeatable"]["repeats"]
-            sequence = item["repeatable"]["sequence"]
-
             for _ in range(repeat_count):
-                for command in sequence:
-                    servo_number = command["servo"]
-                    angle = command["angle"]
-                    execute_command(servo_number, angle)
-                    time.sleep(0.5)  # Пауза между командами внутри последовательности
-
-        time.sleep(1)  # Пауза между одиночными командами или группами команд
+                for cmd in item["repeatable"]["commands"]:
+                    execute_command(cmd["servo"], cmd["angle"])
 
 
-def increase_slider(slider_number):
-    """Increase the specified slider's value by 2, up to a maximum of 180."""
-    current_value = sliders[slider_number].get()
-    sliders[slider_number].set(min(180, current_value + 7))
-
-
-def decrease_slider(slider_number):
-    """Decrease the specified slider's value by 2, down to a minimum of 0."""
-    current_value = sliders[slider_number].get()
-    sliders[slider_number].set(max(0, current_value - 7))
-
-
-# Main GUI setup
+# Create main window
 root = tk.Tk()
-root.geometry('1240x680')
+root.geometry("1920x1080")
 root.title("Handy")
-style = ttk.Style()
-style.theme_use("aqua")
 icon = tk.PhotoImage(file='icon.png')
 root.iconphoto(True, icon)
 
@@ -260,28 +265,29 @@ distance_label.grid(row=7, column=0, columnspan=3, padx=10, pady=10)
 object_size_label = ttk.Label(root, text="Object Size: 20 px")
 object_size_label.grid(row=6, column=0, columnspan=3, padx=10, pady=10)
 
-canvas = tk.Canvas(root, width=CANVAS_SIZE, height=CANVAS_SIZE, bg='green')
+canvas = tk.Canvas(root, width=CANVAS_SIZE, height=CANVAS_SIZE, bg="green")
 canvas.grid(row=8, column=0, columnspan=3, padx=10, pady=10)
 
 ttk.Label(root, text="Camera URL:").grid(row=0, column=3, padx=10, pady=10)
 camera_url_entry = ttk.Entry(root, width=30)
 camera_url_entry.insert(0, camera_url)
 camera_url_entry.grid(row=0, column=4, padx=10, pady=10)
-ttk.Button(root, text="Connect", command=connect_camera).grid(row=0, column=5, padx=10, pady=10)
 
 camera_label = ttk.Label(root)
 camera_label.grid(row=1, column=3, rowspan=8, columnspan=3, padx=10, pady=10)
 
-# Button to load JSON file
-ttk.Button(root, text="Load Commands from JSON File", command=load_commands_from_file).grid(row=0, column=2, padx=10, pady=10)
+def increase_slider(slider_number):
+    """Increase the specified slider's value by 2, up to a maximum of 180."""
+    current_value = sliders[slider_number].get()
+    sliders[slider_number].set(min(180, current_value + 7))
 
-# Create sliders and add to `sliders` list
-for i in range(6):
-    ttk.Label(root, text=f"Slider {i + 1}").grid(row=i + 1, column=0, padx=10, pady=5)
-    slider = create_slider(root, i, i + 1)
-    sliders.append(slider)
 
-# Bind keys and start distance reading and camera updating
+def decrease_slider(slider_number):
+    """Decrease the specified slider's value by 2, down to a minimum of 0."""
+    current_value = sliders[slider_number].get()
+    sliders[slider_number].set(max(0, current_value - 7))
+
+
 root.bind("d", lambda event: increase_slider(0))
 root.bind("a", lambda event: decrease_slider(0))
 
@@ -300,13 +306,12 @@ root.bind("q", lambda event: decrease_slider(4))
 root.bind("<space>", lambda event: increase_slider(5))
 root.bind("z", lambda event: decrease_slider(5))
 
+# Create sliders
+create_sliders()
 
+# Initialize serial connection and image update
+update_serial_port(SERIAL_PORT)
 update_image()
-read_distance()
 
-# Start main loop and ensure serial port closes on exit
-try:
-    root.mainloop()
-finally:
-    if ser and ser.is_open:
-        ser.close()
+# Run main loop
+root.mainloop()
