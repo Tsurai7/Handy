@@ -1,3 +1,4 @@
+import os
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import serial
@@ -36,6 +37,24 @@ last_sound_time = 0
 camera_connected = True
 
 sliders = []  # Store all sliders in a list for easier reference
+
+icons = {
+    "Info": "warning.png",
+    "Error": "error.png"
+}
+
+ICON_FOLDER = "../icons"
+
+
+def load_icon(icon_name):
+    """Загружает иконку из указанной папки и возвращает объект PhotoImage."""
+    icon_path = os.path.join(ICON_FOLDER, icon_name)
+    try:
+        img = Image.open(icon_path).resize((24, 24), Image.Resampling.LANCZOS)
+        return ImageTk.PhotoImage(img)
+    except Exception as e:
+        print(f"Не удалось загрузить иконку {icon_name}: {e}")
+        return None
 
 
 def on_scale_change(slider_number, val):
@@ -115,7 +134,40 @@ def get_data_from_serial():
                     handle_error_message(message)
         except Exception as e:
             print(f"Error reading data: {e}")
-    root.after(100, get_data_from_sensor)
+    root.after(100, get_data_from_serial)
+
+
+def show_toast(message, message_type="Info", duration=3000):
+    toast = tk.Toplevel()
+    toast.overrideredirect(True)
+    toast.attributes("-topmost", True)
+
+    screen_width = toast.winfo_screenwidth()
+    screen_height = toast.winfo_screenheight()
+    window_width = 300
+    window_height = 60
+    x = screen_width - window_width - 20
+    y = screen_height - window_height - 60
+    toast.geometry(f"{window_width}x{window_height}+{x}+{y}")
+
+    # Create a frame to hold the icon and message
+    frame = tk.Frame(toast, bg="black")
+    frame.pack(fill=tk.BOTH, expand=True)
+
+    # Load the icon based on message type
+    icon_path = icons.get(message_type, "info.png")
+    icon = load_icon(icon_path)
+
+    # Display the icon (if loaded) and the message
+    if icon:
+        icon_label = tk.Label(frame, image=icon, bg="black")
+        icon_label.image = icon  # Keep a reference to avoid garbage collection
+        icon_label.pack(side=tk.LEFT, padx=10, pady=10)
+
+    label = tk.Label(frame, text=message, bg="black", fg="white", font=("Arial", 12), anchor="w")
+    label.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    toast.after(duration, toast.destroy)
 
 
 def handle_distance_message(message):
@@ -131,20 +183,19 @@ def handle_distance_message(message):
 
 
 def handle_info_message(message):
-    """Обработка сообщения типа Message"""
+    """Handle 'Info' type messages."""
     info = message.split(": ", 1)[1] if ": " in message else "No details"
     print(f"Info Message: {info}")
-    # Дополнительно можно добавить обработку сообщения
-    # Например, обновить метку в интерфейсе
-    info_label.config(text=f"Info: {info}")
+    show_toast(f"Info: {info}", "Info")
 
 
 def handle_error_message(message):
-    """Обработка сообщения типа Error"""
-    error_details = message.split(": ", 1)[1] if ": " in message else "Unknown error"
-    print(f"Error: {error_details}")
-    messagebox.showerror("Error", error_details)
-    # Можно добавить дополнительную логику обработки ошибок
+    """Handle 'Error' type messages."""
+    error_info = message.split(": ", 1)[1] if ": " in message else "No details"
+    print(f"Error Message: {error_info}")
+    show_toast(f"Error: {error_info}", "Error")
+
+
 
 
 def detect_objects(image, distance):
