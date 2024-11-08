@@ -97,27 +97,6 @@ bool isServoConnected(int pin) {
   return (signalValue == LOW);
 }
 
-void smoothMove(int servoIndex, int targetValue) {
-  targetPos[servoIndex] = targetValue;
-
-  int diff = abs(targetValue - currentPos[servoIndex]);
-
-  if (diff > max_angle_per_command) {
-    int step = (targetValue > currentPos[servoIndex]) ? step_size : -step_size;
-
-    while (abs(currentPos[servoIndex] - targetValue) > step_size) {
-      currentPos[servoIndex] += step;
-      moveServo(servoIndex, currentPos[servoIndex]);
-      delay(step_delay);
-    }
-    currentPos[servoIndex] = targetValue;
-    moveServo(servoIndex, currentPos[servoIndex]);
-  } else {
-    currentPos[servoIndex] = targetValue;
-    moveServo(servoIndex, targetValue);
-  }
-}
-
 void loop() {
 if (Serial.available() > 0) {
     String input = Serial.readStringUntil('\n');
@@ -127,7 +106,7 @@ if (Serial.available() > 0) {
       int servoValue = input.substring(separatorIndex + 1).toInt();
 
       if (servoIndex >= 0 && servoIndex < 6) {
-        smoothMove(servoIndex, servoValue);
+        moveServo(servoIndex, servoValue);
       } else {
         Serial.println("Error: Invalid servo index.");
       }
@@ -144,7 +123,6 @@ if (Serial.available() > 0) {
     checkServoStatus();
     tmr2 = millis();
   }
-
 }
 
 void ultra_sonic() {
@@ -180,8 +158,6 @@ void checkServoStatus() {
       Serial.print(i);
       Serial.println(" connected.");
     }
-
-
   }
 }
 
