@@ -94,25 +94,57 @@ def update_serial_port(port):
     try:
         ser = serial.Serial(port, BAUDRATE)
         print(f"Connected to serial port: {port}")
-        get_distance_from_sensor()
+        get_data_from_serial()
     except serial.SerialException as e:
         messagebox.showerror("Serial Port Error", f"Could not open serial port {port}: {e}")
         print(f"Could not open serial port {port}: {e}")
 
 
-def get_distance_from_sensor():
+def get_data_from_serial():
     global current_distance
     if ser and ser.is_open:
         try:
             if ser.in_waiting > 0:
-                distance = ser.readline().decode('utf-8').strip()
-                if distance.startswith("distance: "):
-                    distance_value = int(distance.split(": ")[1])
-                    current_distance = distance_value  # Store the distance
-                    distance_label.config(text=f"Distance: {distance_value} cm")
+                message = ser.readline().decode('utf-8').strip()
+
+                if message.startswith("Distance: "):
+                    handle_distance_message(message)
+                elif message.startswith("Message: "):
+                    handle_info_message(message)
+                elif message.startswith("Error: "):
+                    handle_error_message(message)
         except Exception as e:
-            print(f"Error reading distance: {e}")
-    root.after(100, get_distance_from_sensor)
+            print(f"Error reading data: {e}")
+    root.after(100, get_data_from_sensor)
+
+
+def handle_distance_message(message):
+    """Обработка сообщения типа Distance"""
+    global current_distance
+    try:
+        distance_value = int(message.split(": ")[1])
+        current_distance = distance_value
+        distance_label.config(text=f"Distance: {distance_value} cm")
+        print(f"Distance: {distance_value} cm")
+    except ValueError:
+        print("Invalid distance value")
+
+
+def handle_info_message(message):
+    """Обработка сообщения типа Message"""
+    info = message.split(": ", 1)[1] if ": " in message else "No details"
+    print(f"Info Message: {info}")
+    # Дополнительно можно добавить обработку сообщения
+    # Например, обновить метку в интерфейсе
+    info_label.config(text=f"Info: {info}")
+
+
+def handle_error_message(message):
+    """Обработка сообщения типа Error"""
+    error_details = message.split(": ", 1)[1] if ": " in message else "Unknown error"
+    print(f"Error: {error_details}")
+    messagebox.showerror("Error", error_details)
+    # Можно добавить дополнительную логику обработки ошибок
 
 
 def detect_objects(image, distance):
