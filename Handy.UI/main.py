@@ -106,7 +106,7 @@ def get_distance_from_sensor():
         try:
             if ser.in_waiting > 0:
                 distance = ser.readline().decode('utf-8').strip()
-                if distance.startswith("distance: "):
+                if distance.startswith("Distance: "):
                     distance_value = int(distance.split(": ")[1])
                     current_distance = distance_value  # Store the distance
                     distance_label.config(text=f"Distance: {distance_value} cm")

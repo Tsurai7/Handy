@@ -18,7 +18,7 @@ int distance;
 
 int servoPins[] = {3, 5, 6, 9, 10, 11};
 bool servoConnected[] = {true, true, true, true, true, true};
-const int disconnectThreshold = 200;
+const int disconnectThreshold = 1;
 
 bool ultrasonicConnected = true;
 
@@ -51,21 +51,27 @@ void moveServo(int servoIndex, int servoValue) {
     if (angleValid) {
     switch (servoIndex) {
       case 0:
+        servo_0.attach(servoPins[0]);
         servo_0.write(servoValue);
         break;
       case 1:
+        servo_1.attach(servoPins[1]);
         servo_1.write(servoValue);
         break;
       case 2:
+        servo_2.attach(servoPins[2]);
         servo_2.write(servoValue);
         break;
       case 3:
+        servo_3.attach(servoPins[3]);
         servo_3.write(servoValue);
         break;
       case 4:
+        servo_4.attach(servoPins[4]);
         servo_4.write(servoValue);
         break;
       case 5:
+        servo_5.attach(servoPins[5]);
         servo_5.write(servoValue);
         break;
       default:
@@ -83,6 +89,12 @@ void moveServo(int servoIndex, int servoValue) {
     Serial.print(servoIndex);
     Serial.println(" is not connected.");
     }
+}
+
+bool isServoConnected(int pin) {
+  pinMode(pin, INPUT);
+  int signalValue = digitalRead(pin);
+  return (signalValue == LOW);
 }
 
 void smoothMove(int servoIndex, int targetValue) {
@@ -155,9 +167,7 @@ void ultra_sonic() {
 
 void checkServoStatus() {
   for (int i = 0; i < 6; i++) {
-    pinMode(servoPins[i], INPUT);
-    int signalValue = pulseIn(servoPins[i], HIGH, 20000);
-
+    int signalValue = isServoConnected(servoPins[i]);
     if (signalValue < disconnectThreshold && servoConnected[i]) {
       servoConnected[i] = false;
       Serial.print("Error: Servo ");
@@ -171,15 +181,7 @@ void checkServoStatus() {
       Serial.println(" connected.");
     }
 
-    pinMode(servoPins[i], OUTPUT);
-    switch (i) {
-      case 0: servo_0.attach(servoPins[i]); break;
-      case 1: servo_1.attach(servoPins[i]); break;
-      case 2: servo_2.attach(servoPins[i]); break;
-      case 3: servo_3.attach(servoPins[i]); break;
-      case 4: servo_4.attach(servoPins[i]); break;
-      case 5: servo_5.attach(servoPins[i]); break;
-    }
+
   }
 }
 
