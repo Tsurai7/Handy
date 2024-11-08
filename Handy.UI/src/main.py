@@ -57,14 +57,29 @@ def load_icon(icon_name):
         return None
 
 
+slider_history = {}
+
+
 def on_scale_change(slider_number, val):
-    """Send slider change to serial if open."""
+    """Send slider change to serial if open and value difference is significant."""
     if ser and ser.is_open:
         value = int(float(val))
-        message = f"{slider_number-1} {value}"
+        message = f"{slider_number - 1} {value}"
+
+        history = slider_history.get(slider_number, [])
+
+        if history:
+            if all(abs(value - prev_value) < 5 for prev_value in history):
+                print(f"Skipped sending for slider {slider_number} with value {value}")
+                return
+
         ser.write((message + '\n').encode())
         print(f"Sent to serial: {message.strip()}")
 
+        history.append(value)
+        if len(history) > 3:
+            history.pop(0)
+        slider_history[slider_number] = history
 
 def create_slider(root, row, slider_number):
     """Create and return a labeled slider with a Tkinter Scale widget."""
