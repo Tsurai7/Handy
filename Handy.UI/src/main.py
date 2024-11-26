@@ -1,3 +1,4 @@
+import os
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import serial
@@ -37,15 +38,48 @@ camera_connected = True
 
 sliders = []  # Store all sliders in a list for easier reference
 
+icons = {
+    "Info": "warning.png",
+    "Error": "error.png"
+}
+
+ICON_FOLDER = "../icons"
+
+
+def load_icon(icon_name):
+    """Загружает иконку из указанной папки и возвращает объект PhotoImage."""
+    icon_path = os.path.join(ICON_FOLDER, icon_name)
+    try:
+        img = Image.open(icon_path).resize((24, 24), Image.Resampling.LANCZOS)
+        return ImageTk.PhotoImage(img)
+    except Exception as e:
+        print(f"Не удалось загрузить иконку {icon_name}: {e}")
+        return None
+
+
+slider_history = {}
+
 
 def on_scale_change(slider_number, val):
-    """Send slider change to serial if open."""
+    """Send slider change to serial if open and value difference is significant."""
     if ser and ser.is_open:
         value = int(float(val))
-        message = f"{slider_number-1} {value}"
+        message = f"{slider_number - 1} {value}"
+
+        history = slider_history.get(slider_number, [])
+
+        if history:
+            if all(abs(value - prev_value) < 5 for prev_value in history):
+                print(f"Skipped sending for slider {slider_number} with value {value}")
+                return
+
         ser.write((message + '\n').encode())
         print(f"Sent to serial: {message.strip()}")
 
+        history.append(value)
+        if len(history) > 3:
+            history.pop(0)
+        slider_history[slider_number] = history
 
 def create_slider(root, row, slider_number):
     """Create and return a labeled slider with a Tkinter Scale widget."""
@@ -94,25 +128,88 @@ def update_serial_port(port):
     try:
         ser = serial.Serial(port, BAUDRATE)
         print(f"Connected to serial port: {port}")
-        get_distance_from_sensor()
+        get_data_from_serial()
     except serial.SerialException as e:
         messagebox.showerror("Serial Port Error", f"Could not open serial port {port}: {e}")
         print(f"Could not open serial port {port}: {e}")
 
 
-def get_distance_from_sensor():
+def get_data_from_serial():
     global current_distance
     if ser and ser.is_open:
         try:
             if ser.in_waiting > 0:
-                distance = ser.readline().decode('utf-8').strip()
-                if distance.startswith("Distance: "):
-                    distance_value = int(distance.split(": ")[1])
-                    current_distance = distance_value  # Store the distance
-                    distance_label.config(text=f"Distance: {distance_value} cm")
+                message = ser.readline().decode('utf-8').strip()
+                if message.startswith("Distance: "):
+                    handle_distance_message(message)
+                elif message.startswith("Message: "):
+                    handle_info_message(message)
+                elif message.startswith("Error: "):
+                    handle_error_message(message)
         except Exception as e:
-            print(f"Error reading distance: {e}")
-    root.after(100, get_distance_from_sensor)
+            print(f"Error reading data: {e}")
+    root.after(100, get_data_from_serial)
+
+
+def show_toast(message, message_type="Info", duration=3000):
+    toast = tk.Toplevel()
+    toast.overrideredirect(True)
+    toast.attributes("-topmost", True)
+
+    screen_width = toast.winfo_screenwidth()
+    screen_height = toast.winfo_screenheight()
+    window_width = 300
+    window_height = 60
+    x = screen_width - window_width - 20
+    y = screen_height - window_height - 60
+    toast.geometry(f"{window_width}x{window_height}+{x}+{y}")
+
+    # Create a frame to hold the icon and message
+    frame = tk.Frame(toast, bg="black")
+    frame.pack(fill=tk.BOTH, expand=True)
+
+    # Load the icon based on message type
+    icon_path = icons.get(message_type, "info.png")
+    icon = load_icon(icon_path)
+
+    # Display the icon (if loaded) and the message
+    if icon:
+        icon_label = tk.Label(frame, image=icon, bg="black")
+        icon_label.image = icon  # Keep a reference to avoid garbage collection
+        icon_label.pack(side=tk.LEFT, padx=10, pady=10)
+
+    label = tk.Label(frame, text=message, bg="black", fg="white", font=("Arial", 12), anchor="w")
+    label.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    toast.after(duration, toast.destroy)
+
+
+def handle_distance_message(message):
+    """Обработка сообщения типа Distance"""
+    global current_distance
+    try:
+        distance_value = int(message.split(": ")[1])
+        current_distance = distance_value
+        distance_label.config(text=f"Distance: {distance_value} cm")
+        print(f"Distance: {distance_value} cm")
+    except ValueError:
+        print("Invalid distance value")
+
+
+def handle_info_message(message):
+    """Handle 'Info' type messages."""
+    info = message.split(": ", 1)[1] if ": " in message else "No details"
+    print(f"Info Message: {info}")
+    show_toast(f"Info: {info}", "Info")
+
+
+def handle_error_message(message):
+    """Handle 'Error' type messages."""
+    error_info = message.split(": ", 1)[1] if ": " in message else "No details"
+    print(f"Error Message: {error_info}")
+    show_toast(f"Error: {error_info}", "Error")
+
+
 
 
 def detect_objects(image, distance):

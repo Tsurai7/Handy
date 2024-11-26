@@ -1,4 +1,5 @@
 #include <Servo.h>
+#include "INA3221.h"
 
 Servo servo_0;
 Servo servo_1;
@@ -6,19 +7,16 @@ Servo servo_2;
 Servo servo_3;
 Servo servo_4;
 Servo servo_5;
+INA3221 INA(0x40);
 
-#define trigPin 12
-#define echoPin 13
-#define step_delay 15
-#define step_size 10
-#define max_angle_per_command 40
+#define trigPin 13
+#define echoPin 12
 
 int duration;
 int distance;
 
-int servoPins[] = {3, 5, 6, 9, 10, 11};
+int servoPins[] = {6, 5, 11, 9, 3, 10};
 bool servoConnected[] = {true, true, true, true, true, true};
-const int disconnectThreshold = 200;
 
 bool ultrasonicConnected = true;
 
@@ -30,84 +28,65 @@ void setup() {
   pinMode(echoPin, INPUT);
 
   Serial.begin(9600);
-  servo_0.attach(servoPins[0], 0, 180);
-  servo_1.attach(servoPins[1], 0, 180);
-  servo_2.attach(servoPins[2], 0, 180);
-  servo_3.attach(servoPins[3], 0, 180);
-  servo_4.attach(servoPins[4], 0, 180);
-  servo_5.attach(servoPins[5],0, 90);
+  servo_0.attach(servoPins[0]);
+  servo_1.attach(servoPins[1]);
+  servo_2.attach(servoPins[2]);
+  servo_3.attach(servoPins[3]);
+  servo_4.attach(servoPins[4]);
+  servo_5.attach(servoPins[5]);
+
+  INA.setShuntR(0, 0.100);
+  INA.setShuntR(1, 0.102);
+  INA.setShuntR(2, 0.099);
 }
 
 void moveServo(int servoIndex, int servoValue) {
-    if (servoConnected[servoIndex]) {
-
+  if (servoConnected[servoIndex]) {
     bool angleValid = false;
     if (servoIndex < 5 && servoValue >= 0 && servoValue <= 180) {
-    angleValid = true;
-    } else if (servoIndex == 5 && servoValue >= 0 && servoValue <= 90) {
-    angleValid = true;
+      angleValid = true;
+    } else if (servoIndex == 5 && servoValue >= 17 && servoValue <= 90) {
+      angleValid = true;
     }
 
     if (angleValid) {
-    switch (servoIndex) {
-      case 0:
-        servo_0.write(servoValue);
-        break;
-      case 1:
-        servo_1.write(servoValue);
-        break;
-      case 2:
-        servo_2.write(servoValue);
-        break;
-      case 3:
-        servo_3.write(servoValue);
-        break;
-      case 4:
-        servo_4.write(servoValue);
-        break;
-      case 5:
-        servo_5.write(servoValue);
-        break;
-      default:
-        break;
-    }
+      switch (servoIndex) {
+        case 0:
+          servo_0.write(servoValue);
+          break;
+        case 1:
+          servo_1.write(servoValue);
+          break;
+        case 2:
+          servo_2.write(servoValue);
+          break;
+        case 3:
+          servo_3.write(servoValue);
+          break;
+        case 4:
+          servo_4.write(servoValue);
+          break;
+        case 5:
+          servo_5.write(servoValue);
+          break;
+        default:
+          break;
+      }
     } else {
-    Serial.print("Error: Servo ");
-    Serial.print(servoIndex);
-    Serial.print(" angle out of range. ");
-    Serial.println(servoIndex == 5 ? "Allowed: 0-90" : "Allowed: 0-180");
+      Serial.print("Error: Servo ");
+      Serial.print(servoIndex);
+      Serial.print(" angle out of range. ");
+      Serial.println(servoIndex == 5 ? "Allowed: 17-90" : "Allowed: 0-180");
     }
-
-    } else {
+  } else {
     Serial.print("Error: Servo ");
     Serial.print(servoIndex);
     Serial.println(" is not connected.");
-    }
-}
-
-void smoothMove(int servoIndex, int targetValue) {
-  targetPos[servoIndex] = targetValue;
-
-  int diff = abs(targetValue - currentPos[servoIndex]);
-
-  if (diff > max_angle_per_command) {
-    int step = (targetValue > currentPos[servoIndex]) ? step_size : -step_size;
-
-    while (abs(currentPos[servoIndex] - targetValue) > step_size) {
-      currentPos[servoIndex] += step;
-      moveServo(servoIndex, currentPos[servoIndex]);
-      delay(step_delay);
-    }
-    currentPos[servoIndex] = targetValue;
-    moveServo(servoIndex, currentPos[servoIndex]);
-  } else {
-    currentPos[servoIndex] = targetValue;
-    moveServo(servoIndex, targetValue);
   }
 }
 
 void loop() {
-if (Serial.available() > 0) {
+  if (Serial.available() > 0) {
     String input = Serial.readStringUntil('\n');
     int separatorIndex = input.indexOf(' ');
     if (separatorIndex != -1) {
@@ -115,7 +94,7 @@ if (Serial.available() > 0) {
       int servoValue = input.substring(separatorIndex + 1).toInt();
 
       if (servoIndex >= 0 && servoIndex < 6) {
-        smoothMove(servoIndex, servoValue);
+        moveServo(servoIndex, servoValue);
       } else {
         Serial.println("Error: Invalid servo index.");
       }
@@ -130,9 +109,9 @@ if (Serial.available() > 0) {
   static uint32_t tmr2;
   if (millis() - tmr2 >= 10000) {
     checkServoStatus();
+    writeInaInfo();
     tmr2 = millis();
   }
-
 }
 
 void ultra_sonic() {
@@ -154,31 +133,39 @@ void ultra_sonic() {
 }
 
 void checkServoStatus() {
-  for (int i = 0; i < 6; i++) {
-    pinMode(servoPins[i], INPUT);
-    int signalValue = pulseIn(servoPins[i], HIGH, 20000);
+  float averagePower[3] = {100.0, 400.0, 70.0};
 
-    if (signalValue < disconnectThreshold && servoConnected[i]) {
-      servoConnected[i] = false;
-      Serial.print("Error: Servo ");
-      Serial.print(i);
-      Serial.println(" disconnected.");
-    }
-    else if (signalValue >= disconnectThreshold && !servoConnected[i]) {
-      servoConnected[i] = true;
-      Serial.print("Message: Servo ");
-      Serial.print(i);
-      Serial.println(" connected.");
-    }
+  for (int ch = 0; ch < 3; ch++) {
+    float currentPower = INA.getPower_mW(ch);
 
-    pinMode(servoPins[i], OUTPUT);
-    switch (i) {
-      case 0: servo_0.attach(servoPins[i]); break;
-      case 1: servo_1.attach(servoPins[i]); break;
-      case 2: servo_2.attach(servoPins[i]); break;
-      case 3: servo_3.attach(servoPins[i]); break;
-      case 4: servo_4.attach(servoPins[i]); break;
-      case 5: servo_5.attach(servoPins[i]); break;
+    if (currentPower < averagePower[ch] / 2.5) {
+      if (ch == 0) {
+        servoConnected[0] = false;
+        servoConnected[5] = false;
+        Serial.println("Error: Both servos in channel 0 (servos 0 and 5) disconnected due to low power.");
+      } else if (ch == 1) {
+        servoConnected[1] = false;
+        servoConnected[4] = false;
+        Serial.println("Error: Both servos in channel 1 (servos 1 and 4) disconnected due to low power.");
+      } else if (ch == 2) {
+        servoConnected[2] = false;
+        servoConnected[3] = false;
+        Serial.println("Error: Both servos in channel 2 (servos 2 and 3) disconnected due to low power.");
+      }
+    } else if (currentPower < averagePower[ch] / 1.5) {
+      if (ch == 0) {
+        servoConnected[0] = false;
+        servoConnected[5] = false;
+        Serial.println("Error: One servo in channel 0 (servos 0 and 5) disconnected due to low power.");
+      } else if (ch == 1) {
+        servoConnected[1] = false;
+        servoConnected[4] = false;
+        Serial.println("Error: One servo in channel 1 (servos 1 and 4) disconnected due to low power.");
+      } else if (ch == 2) {
+        servoConnected[2] = false;
+        servoConnected[3] = false;
+        Serial.println("Error: One servo in channel 2 (servos 2 and 3) disconnected due to low power.");
+      }
     }
   }
 }
@@ -198,5 +185,21 @@ void checkUltrasonicSensor() {
   } else if (duration > 0 && !ultrasonicConnected) {
     ultrasonicConnected = true;
     Serial.println("Message: Ultrasonic sensor connected.");
+  }
+}
+
+void writeInaInfo() {
+  for (int ch = 0; ch < 3; ch++) {
+    Serial.print("Channel: ");
+    Serial.print(ch);
+    Serial.print(" | Bus Voltage: ");
+    Serial.print(INA.getBusVoltage(ch), 3);
+    Serial.print(" V | Shunt Voltage: ");
+    Serial.print(INA.getShuntVoltage_mV(ch), 3);
+    Serial.print(" mV | Current: ");
+    Serial.print(INA.getCurrent_mA(ch), 3);
+    Serial.print(" mA | Power: ");
+    Serial.print(INA.getPower_mW(ch), 3);
+    Serial.println(" mW");
   }
 }
