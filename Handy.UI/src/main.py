@@ -140,7 +140,6 @@ def get_data_from_serial():
         try:
             if ser.in_waiting > 0:
                 message = ser.readline().decode('utf-8').strip()
-
                 if message.startswith("Distance: "):
                     handle_distance_message(message)
                 elif message.startswith("Message: "):
