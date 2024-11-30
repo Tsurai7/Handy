@@ -343,35 +343,35 @@ def load_commands_from_json(filename):
 
 # Create main window
 root = tk.Tk()
-root.geometry("1920x1080")
+root.geometry("1000x1200")
 root.title("Handy")
-icon = tk.PhotoImage(file='../icon.png')
+icon = tk.PhotoImage(file='../icons/icon.png')
 root.iconphoto(True, icon)
 
 # UI elements for serial port, distance, and sliders
-ttk.Label(root, text="Select Serial Port:").grid(row=0, column=0, padx=10, pady=10)
+ttk.Label(root, text="Select Serial Port:").grid(row=0, column=0, padx=5, pady=5)
 available_ports = [port.device for port in serial.tools.list_ports.comports()]
 port_combobox = ttk.Combobox(root, values=available_ports, state="readonly")
 port_combobox.set(SERIAL_PORT)
-port_combobox.grid(row=0, column=1, padx=10, pady=10)
+port_combobox.grid(row=0, column=1, padx=5, pady=10)
 port_combobox.bind("<<ComboboxSelected>>", lambda event: update_serial_port(port_combobox.get()))
 
 distance_label = ttk.Label(root, text="Distance: ")
-distance_label.grid(row=7, column=0, columnspan=3, padx=10, pady=10)
+distance_label.grid(row=7, column=0, columnspan=3, padx=5, pady=10)
 
 object_size_label = ttk.Label(root, text="Object Size: 20 px")
-object_size_label.grid(row=6, column=0, columnspan=3, padx=10, pady=10)
+object_size_label.grid(row=6, column=0, columnspan=3, padx=5, pady=10)
 
-canvas = tk.Canvas(root, width=CANVAS_SIZE, height=CANVAS_SIZE, bg="green")
-canvas.grid(row=8, column=0, columnspan=3, padx=10, pady=10)
-
-ttk.Label(root, text="Camera URL:").grid(row=0, column=3, padx=10, pady=10)
+ttk.Label(root, text="Camera URL:").grid(row=0, column=2, padx=5, pady=10)
 camera_url_entry = ttk.Entry(root, width=30)
 camera_url_entry.insert(0, camera_url)
-camera_url_entry.grid(row=0, column=4, padx=10, pady=10)
+camera_url_entry.grid(row=0, column=3, padx=10, pady=10)
 
 camera_label = ttk.Label(root)
-camera_label.grid(row=1, column=3, rowspan=8, columnspan=3, padx=10, pady=10)
+camera_label.grid(row=8, column=0, rowspan=8, columnspan=3, padx=5, pady=10)
+
+load_file_button = ttk.Button(root, text="Load Commands from File", command=load_commands_from_file)
+load_file_button.grid(row=1, column=3, padx=5, pady=10)
 
 def increase_slider(slider_number):
     """Increase the specified slider's value by 2, up to a maximum of 180."""
