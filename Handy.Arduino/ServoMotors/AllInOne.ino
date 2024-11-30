@@ -102,7 +102,7 @@ void loop() {
   }
 
   static uint32_t tmr;
-  if (millis() - tmr >= 1000) {
+  if (millis() - tmr >= 3000) {
     ultra_sonic();
     tmr = millis();
   }
@@ -133,7 +133,7 @@ void ultra_sonic() {
 }
 
 void checkServoStatus() {
-  float averagePower[3] = {100.0, 400.0, 70.0};
+  float averagePower[3] = {100.0, 400.0, 70.0}; // Set average power for each channel
 
   for (int ch = 0; ch < 3; ch++) {
     float currentPower = INA.getPower_mW(ch);
@@ -165,6 +165,20 @@ void checkServoStatus() {
         servoConnected[2] = false;
         servoConnected[3] = false;
         Serial.println("Error: One servo in channel 2 (servos 2 and 3) disconnected due to low power.");
+      }
+    } else if (currentPower > averagePower[ch]) {
+      if (ch == 0) {
+        servoConnected[0] = true;
+        servoConnected[5] = true;
+        Serial.println("Message: Both servos in channel 0 (servos 0 and 5) connected.");
+      } else if (ch == 1) {
+        servoConnected[1] = true;
+        servoConnected[4] = true;
+        Serial.println("Message: Both servos in channel 1 (servos 1 and 4) connected.");
+      } else if (ch == 2) {
+        servoConnected[2] = true;
+        servoConnected[3] = true;
+        Serial.println("Message: Both servos in channel 2 (servos 2 and 3) connected.");
       }
     }
   }
