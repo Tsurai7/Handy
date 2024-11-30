@@ -68,10 +68,10 @@ def on_scale_change(slider_number, val):
 
         history = slider_history.get(slider_number, [])
 
-        if history:
-            if all(abs(value - prev_value) < 5 for prev_value in history):
-                print(f"Skipped sending for slider {slider_number} with value {value}")
-                return
+        # if history:
+        #     if all(abs(value - prev_value) < 5 for prev_value in history):
+        #         print(f"Skipped sending for slider {slider_number} with value {value}")
+        #         return
 
         ser.write((message + '\n').encode())
         print(f"Sent to serial: {message.strip()}")
