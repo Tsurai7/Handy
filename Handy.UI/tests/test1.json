@@ -2,21 +2,26 @@
     "commands": [
         { "servo": 1, "angle": 45 },
         { "servo": 2, "angle": 90 },
-        { "repeatable": {
-            "repeats": 3,
-            "sequence": [
-                { "servo": 1, "angle": 90 },
-                { "servo": 2, "angle": 45 },
-                { "servo": 3, "angle": 135 }
-            ]
-        }},
-        { "servo": 4, "angle": 180 },
-        { "repeatable": {
-            "repeats": 2,
-            "sequence": [
-                { "servo": 5, "angle": 30 },
-                { "servo": 6, "angle": 120 }
-            ]
-        }}
+        {
+            "repeatable": {
+                "repeats": 3,
+                "sequence": [
+                    { "servo": 1, "angle": 110 },
+                    { "servo": 2, "angle": 45 },
+                    { "servo": 3, "angle": 135 }
+                ]
+            }
+        },
+        { "servo": 4, "angle": 120 },
+        {
+            "repeatable": {
+                "repeats": 2,
+                "sequence": [
+                    { "servo": 6, "angle": 20 },
+                    { "servo": 5, "angle": 30 },
+                    { "servo": 6, "angle": 70 }
+                ]
+            }
+        }
     ]
 }
