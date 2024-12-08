@@ -8,11 +8,12 @@ import requests
 import numpy as np
 from PIL import Image, ImageTk, ImageDraw, ImageFont
 import cv2
-import queue
+import threading
 
 
 from globals import sliders, YOLO_WEIGHTS, YOLO_CONFIG, YOLO_CLASSES
 import helpers
+import ui
 
 # Constants
 current_distance = 0
@@ -29,14 +30,6 @@ with open(YOLO_CLASSES, "r") as f:
 # Global variables
 ser = None
 camera_connected = True
-
-image_queue = queue.Queue()
-
-
-icons = {
-    "Info": "warning.png",
-    "Error": "error.png"
-}
 
 camera_url = helpers.find_esp32_camera()
 
@@ -130,39 +123,6 @@ def get_data_from_serial():
     root.after(100, get_data_from_serial)
 
 
-def show_toast(message, message_type="Info", duration=3000):
-    toast = tk.Toplevel()
-    toast.overrideredirect(True)
-    toast.attributes("-topmost", True)
-
-    screen_width = toast.winfo_screenwidth()
-    screen_height = toast.winfo_screenheight()
-    window_width = 300
-    window_height = 60
-    x = screen_width - window_width - 20
-    y = screen_height - window_height - 60
-    toast.geometry(f"{window_width}x{window_height}+{x}+{y}")
-
-    # Create a frame to hold the icon and message
-    frame = tk.Frame(toast, bg="black")
-    frame.pack(fill=tk.BOTH, expand=True)
-
-    # Load the icon based on message type
-    icon_path = icons.get(message_type, "info.png")
-    icon = helpers.load_icon(icon_path)
-
-    # Display the icon (if loaded) and the message
-    if icon:
-        icon_label = tk.Label(frame, image=icon, bg="black")
-        icon_label.image = icon  # Keep a reference to avoid garbage collection
-        icon_label.pack(side=tk.LEFT, padx=10, pady=10)
-
-    label = tk.Label(frame, text=message, bg="black", fg="white", font=("Arial", 12), anchor="w")
-    label.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-    toast.after(duration, toast.destroy)
-
-
 def handle_distance_message(message):
     global current_distance
     try:
@@ -178,14 +138,14 @@ def handle_info_message(message):
     """Handle 'Info' type messages."""
     info = message.split(": ", 1)[1] if ": " in message else "No details"
     print(f"Info Message: {info}")
-    show_toast(f"Info: {info}", "Info")
+    ui.show_toast(f"Info: {info}", "Info")
 
 
 def handle_error_message(message):
     """Handle 'Error' type messages."""
     error_info = message.split(": ", 1)[1] if ": " in message else "No details"
     print(f"Error Message: {error_info}")
-    show_toast(f"Error: {error_info}", "Error")
+    ui.show_toast(f"Error: {error_info}", "Error")
 
 
 def detect_objects(image, distance):
@@ -249,61 +209,53 @@ def get_image_from_camera():
     return None
 
 
-def update_image():
-    image = get_image_from_camera()
+def update_image_in_thread():
+    """Обрабатывает изображения в отдельном потоке и отправляет их в UI-поток."""
+    while True:
+        image = get_image_from_camera()
+        if image is not None:
+            # Обработка изображения
+            image = detect_objects(image, current_distance)
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # Конвертация из OpenCV BGR в RGB
+            img = Image.fromarray(image)
+        else:
+            # Создаем заглушку "No Camera Found"
+            width, height = 640, 480
+            img = Image.new('RGB', (width, height), color=(240, 240, 240))  # Серый фон
+            draw = ImageDraw.Draw(img)
+            font_large = ImageFont.load_default()
+            text = "No Camera Found"
+            subtext = "Please check your camera connection."
 
-    if image is not None:
-        # Process the camera image (e.g., detect objects)
-        image = detect_objects(image, current_distance)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # Convert from OpenCV BGR to RGB
-        img = Image.fromarray(image)
-    else:
-        # Create a "No Camera Found" placeholder
-        width, height = 640, 480
-        img = Image.new('RGB', (width, height), color=(240, 240, 240))  # Light gray background
-        draw = ImageDraw.Draw(img)
+            # Рассчитываем координаты для текста
+            text_bbox = draw.textbbox((0, 0), text, font=font_large)
+            subtext_bbox = draw.textbbox((0, 0), subtext, font=font_large)
+            text_width, text_height = text_bbox[2] - text_bbox[0], text_bbox[3] - text_bbox[1]
+            subtext_width, subtext_height = subtext_bbox[2] - subtext_bbox[0], subtext_bbox[3] - subtext_bbox[1]
 
-        # Use the default Pillow font
-        font_large = ImageFont.load_default()
+            draw.text(
+                ((width - text_width) // 2, height // 2 - text_height),
+                text,
+                fill="black",
+                font=font_large
+            )
+            draw.text(
+                ((width - subtext_width) // 2, height // 2 + text_height),
+                subtext,
+                fill="gray",
+                font=font_large
+            )
 
-        # Text to display
-        text = "No Camera Found"
-        subtext = "Please check your camera connection."
-
-        # Calculate text dimensions using textbbox
-        text_bbox = draw.textbbox((0, 0), text, font=font_large)
-        subtext_bbox = draw.textbbox((0, 0), subtext, font=font_large)
-        text_width, text_height = text_bbox[2] - text_bbox[0], text_bbox[3] - text_bbox[1]
-        subtext_width, subtext_height = subtext_bbox[2] - subtext_bbox[0], subtext_bbox[3] - subtext_bbox[1]
-
-        # Center and draw the main text
-        draw.text(
-            ((width - text_width) // 2, height // 2 - text_height),
-            text,
-            fill="black",
-            font=font_large
-        )
-
-        # Center and draw the subtext below the main text
-        draw.text(
-            ((width - subtext_width) // 2, height // 2 + text_height),
-            subtext,
-            fill="gray",
-            font=font_large
-        )
-
-    # Display the image in the Tkinter label
-    imgtk = ImageTk.PhotoImage(image=img)
-    camera_label.imgtk = imgtk
-    camera_label.configure(image=imgtk)
-    root.after(1000, update_image)  # Schedule the next update
+        # Обновляем UI через основной поток
+        tk_image = ImageTk.PhotoImage(image=img)
+        root.after(0, update_ui_image, tk_image)  # Передача изображения в UI
+        time.sleep(0.1)  # Задержка, чтобы уменьшить нагрузку на CPU
 
 
-def connect_camera():
-    """Connect to the camera by updating the URL."""
-    global camera_url, camera_connected
-    camera_url = camera_url_entry.get()
-    camera_connected = True
+def update_ui_image(tk_image):
+    """Обновляет изображение в виджете Tkinter."""
+    camera_label.imgtk = tk_image
+    camera_label.configure(image=tk_image)
 
 
 def execute_command(servo_number, angle):
@@ -311,6 +263,7 @@ def execute_command(servo_number, angle):
     sliders[servo_number].set(angle)
     print(f"Servo {servo_number} set to angle {angle}")
     on_scale_change(servo_number, angle)
+
 
 def load_commands_from_json(filename):
     """Load and execute servo commands and repeatable sequences from a JSON file."""
@@ -353,7 +306,7 @@ def load_commands_from_file():
 
 # Create main window
 root = tk.Tk()
-root.geometry("1000x1180")
+root.geometry("1080x1080")
 root.title("Handy")
 icon = tk.PhotoImage(file='../icons/icon.png')
 root.iconphoto(True, icon)
@@ -367,7 +320,7 @@ port_combobox.grid(row=0, column=1, padx=5, pady=5)
 port_combobox.bind("<<ComboboxSelected>>", lambda event: update_serial_port(port_combobox.get()))
 
 distance_label = ttk.Label(root, text=f"Distance: {current_distance}", justify="left", anchor="w")
-distance_label.grid(row=2, column=2, columnspan=2, padx=5, pady=10)
+distance_label.grid(row=2, column=2, padx=5, pady=10)
 
 ttk.Label(root, text="Camera URL:").grid(row=0, column=2, padx=5, pady=10)
 camera_url_entry = ttk.Entry(root, width=30)
@@ -376,6 +329,9 @@ camera_url_entry.grid(row=0, column=3, padx=10, pady=10)
 
 camera_label = ttk.Label(root)
 camera_label.grid(row=8, column=0, rowspan=8, columnspan=3, padx=5, pady=10)
+
+connect_camera_button = ttk.Button(root, text="Try to reconnect", command=get_image_from_camera)
+connect_camera_button.grid(row=1, column=2, padx=5, pady=10)
 
 load_file_button = ttk.Button(root, text="Load Commands from File", command=load_commands_from_file)
 load_file_button.grid(row=1, column=3, padx=5, pady=10)
@@ -416,7 +372,8 @@ root.bind("z", lambda event: helpers.decrease_slider(5))
 # Create sliders
 create_sliders()
 
-update_image()
+video_thread = threading.Thread(target=update_image_in_thread, daemon=True)
+video_thread.start()
 
 # Run main loop
 root.mainloop()
