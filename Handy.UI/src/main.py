@@ -1,6 +1,5 @@
-import os
-import re
-import subprocess
+import json
+import time
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import serial
@@ -9,21 +8,16 @@ import requests
 import numpy as np
 from PIL import Image, ImageTk, ImageDraw, ImageFont
 import cv2
-import json
+import queue
+
+
+from globals import sliders, YOLO_WEIGHTS, YOLO_CONFIG, YOLO_CLASSES
+import helpers
 
 # Constants
 current_distance = 0
 BAUDRATE = 9600
-OBJECT_SIZE = 20
-MAX_DISTANCE = 200
-SENSOR_RADIUS = 5
-CANVAS_SIZE = 400
-camera_url = "http://192.168.239.91/capture"
 
-# YOLOv4 model files
-YOLO_CONFIG = "../cam.ai/yolov4.cfg"
-YOLO_WEIGHTS = "../cam.ai/yolov4.weights"
-YOLO_CLASSES = "../cam.ai/coco.names"
 
 # Load YOLOv4 model
 net = cv2.dnn.readNet(YOLO_WEIGHTS, YOLO_CONFIG)
@@ -34,91 +28,17 @@ with open(YOLO_CLASSES, "r") as f:
 
 # Global variables
 ser = None
-last_sound_time = 0
 camera_connected = True
 
-sliders = []  # Store all sliders in a list for easier reference
+image_queue = queue.Queue()
+
 
 icons = {
     "Info": "warning.png",
     "Error": "error.png"
 }
 
-ICON_FOLDER = "../icons"
-
-
-def get_connected_devices():
-    devices = []
-    result = subprocess.run(['arp', '-a'], stdout=subprocess.PIPE, text=True)
-
-    # Regular expression to match the IP and MAC address
-    pattern = r"\((.*?)\) at (.*?) on"
-    matches = re.findall(pattern, result.stdout)
-
-    for ip, mac in matches:
-        devices.append((ip, mac))
-    return devices
-
-
-# Function to check if a device is an ESP32 by MAC address prefix
-def is_esp32(mac_address):
-    # ESP32 MAC address typically starts with one of the following prefixes
-    esp32_prefixes = []
-
-    # Check if the MAC address starts with one of these prefixes
-    for prefix in esp32_prefixes:
-        if mac_address.upper().startswith(prefix.upper()):
-            return True
-    return False
-
-
-# Function to check if the device is an ESP32 camera by sending a request
-def check_esp32_camera(ip):
-    url = f"http://{ip}/capture"
-    try:
-        # Send a request to the camera URL
-        response = requests.get(url, timeout=2)
-        if response.status_code == 200:
-            return True
-    except requests.RequestException:
-        pass
-    return False
-
-
-# Main function to find the ESP32 camera
-def find_esp32_camera():
-    devices = get_connected_devices()
-
-    for ip, mac in devices:
-        if is_esp32(mac):
-            print(f"Found ESP32 device with IP: {ip} and MAC: {mac}")
-            # Verify if it's an ESP32 camera by checking the URL
-            if check_esp32_camera(ip):
-                camera_url = f"http://{ip}/capture"
-                print(f"ESP32 Camera found at: {camera_url}")
-                return camera_url
-    return None
-
-
-# Run the function to find the camera
-camera_url = find_esp32_camera()
-if camera_url:
-    print(f"Camera URL: {camera_url}")
-else:
-    print("No ESP32 camera found.")
-
-camera_url = "http://192.168.239.134/capture"
-
-def load_icon(icon_name):
-    """Загружает иконку из указанной папки и возвращает объект PhotoImage."""
-    icon_path = os.path.join(ICON_FOLDER, icon_name)
-    try:
-        img = Image.open(icon_path).resize((24, 24), Image.Resampling.LANCZOS)
-        return ImageTk.PhotoImage(img)
-    except Exception as e:
-        print(f"Не удалось загрузить иконку {icon_name}: {e}")
-        return None
-
+camera_url = helpers.find_esp32_camera()
 
 slider_history = {}
 
@@ -131,11 +51,6 @@ def on_scale_change(slider_number, val):
 
         history = slider_history.get(slider_number, [])
 
-        # if history:
-        #     if all(abs(value - prev_value) < 5 for prev_value in history):
-        #         print(f"Skipped sending for slider {slider_number} with value {value}")
-        #         return
-
         ser.write((message + '\n').encode())
         print(f"Sent to serial: {message.strip()}")
 
@@ -143,6 +58,7 @@ def on_scale_change(slider_number, val):
         if len(history) > 3:
             history.pop(0)
         slider_history[slider_number] = history
+
 
 def create_slider(root, row, slider_number):
     """Create and return a labeled slider with a Tkinter Scale widget."""
@@ -183,18 +99,18 @@ def create_sliders():
         sliders.append(slider)
 
 
-def update_serial_port(port):
+def update_serial_port(portName):
     """Update serial port and read distance if connected."""
     global ser
     if ser and ser.is_open:
         ser.close()
     try:
-        ser = serial.Serial(port, BAUDRATE)
-        print(f"Connected to serial port: {port}")
+        ser = serial.Serial(portName, BAUDRATE)
+        print(f"Connected to serial port: {portName}")
         get_data_from_serial()
     except serial.SerialException as e:
-        messagebox.showerror("Serial Port Error", f"Could not open serial port {port}: {e}")
-        print(f"Could not open serial port {port}: {e}")
+        messagebox.showerror("Serial Port Error", f"Could not open serial port {portName}: {e}")
+        print(f"Could not open serial port {portName}: {e}")
 
 
 def get_data_from_serial():
@@ -233,7 +149,7 @@ def show_toast(message, message_type="Info", duration=3000):
 
     # Load the icon based on message type
     icon_path = icons.get(message_type, "info.png")
-    icon = load_icon(icon_path)
+    icon = helpers.load_icon(icon_path)
 
     # Display the icon (if loaded) and the message
     if icon:
@@ -248,7 +164,6 @@ def show_toast(message, message_type="Info", duration=3000):
 
 
 def handle_distance_message(message):
-    """Обработка сообщения типа Distance"""
     global current_distance
     try:
         distance_value = int(message.split(": ")[1])
@@ -318,7 +233,6 @@ def detect_objects(image, distance):
 
     return image
 
-
 def get_image_from_camera():
     """Capture image from the camera URL."""
     global camera_connected
@@ -336,7 +250,6 @@ def get_image_from_camera():
 
 
 def update_image():
-    """Update the camera image on the UI."""
     image = get_image_from_camera()
 
     if image is not None:
@@ -383,7 +296,7 @@ def update_image():
     imgtk = ImageTk.PhotoImage(image=img)
     camera_label.imgtk = imgtk
     camera_label.configure(image=imgtk)
-    root.after(10, update_image)  # Schedule the next update
+    root.after(1000, update_image)  # Schedule the next update
 
 
 def connect_camera():
@@ -398,20 +311,6 @@ def execute_command(servo_number, angle):
     sliders[servo_number].set(angle)
     print(f"Servo {servo_number} set to angle {angle}")
     on_scale_change(servo_number, angle)
-
-
-def load_commands_from_file():
-    """Open a file dialog to load commands from a JSON file and execute them."""
-    filename = filedialog.askopenfilename(
-        title="Select a JSON File",
-        filetypes=[("JSON Files", "*.json")]
-    )
-    if filename:
-        try:
-            load_commands_from_json(filename)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to load commands from {filename}:\n{e}")
-
 
 def load_commands_from_json(filename):
     """Load and execute servo commands and repeatable sequences from a JSON file."""
@@ -436,48 +335,20 @@ def load_commands_from_json(filename):
                 for cmd in item["repeatable"]["sequence"]:
                     # Executing each command in the repeatable sequence
                     execute_command(cmd["servo"], cmd["angle"])
+                    time.sleep(1)
 
 
-def get_data_from_serial():
-    root.after(100, get_data_from_serial)
-
-
-def handle_distance_message(message):
-    """Обработка сообщения типа Distance"""
-    global current_distance
-    try:
-        distance_value = int(message.split(": ")[1])
-        current_distance = distance_value
-        distance_label.config(text=f"Distance: {distance_value} cm")
-        print(f"Distance: {distance_value} cm")
-    except ValueError:
-        print("Invalid distance value")
-
-
-def handle_info_message(message):
-    """Handle 'Info' type messages."""
-    info = message.split(": ", 1)[1] if ": " in message else "No details"
-    print(f"Info Message: {info}")
-    show_toast(f"Info: {info}", "Info")
-
-
-def handle_error_message(message):
-    """Handle 'Error' type messages."""
-    error_info = message.split(": ", 1)[1] if ": " in message else "No details"
-    print(f"Error Message: {error_info}")
-    show_toast(f"Error: {error_info}", "Error")
-
-
-def increase_slider(slider_number):
-    """Increase the specified slider's value by 2, up to a maximum of 180."""
-    current_value = sliders[slider_number].get()
-    sliders[slider_number].set(min(180, current_value + 7))
-
-
-def decrease_slider(slider_number):
-    """Decrease the specified slider's value by 2, down to a minimum of 0."""
-    current_value = sliders[slider_number].get()
-    sliders[slider_number].set(max(0, current_value - 7))
+def load_commands_from_file():
+    """Open a file dialog to load commands from a JSON file and execute them."""
+    filename = filedialog.askopenfilename(
+        title="Select a JSON File",
+        filetypes=[("JSON Files", "*.json")]
+    )
+    if filename:
+        try:
+            load_commands_from_json(filename)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load commands from {filename}:\n{e}")
 
 
 # Create main window
@@ -524,24 +395,23 @@ keybind_description = (
 keybind_label = ttk.Label(root, text=keybind_description, justify="left", anchor="w")
 keybind_label.grid(row=8, column=3, rowspan=8, padx=20, pady=10, sticky="nw")
 
+root.bind("<d>", lambda event: helpers.increase_slider(0))
+root.bind("<a>", lambda event: helpers.decrease_slider(0))
 
-root.bind("d", lambda event: increase_slider(0))
-root.bind("a", lambda event: decrease_slider(0))
+root.bind("<Control-w>", lambda event: helpers.increase_slider(1))
+root.bind("<Control-s>", lambda event: helpers.decrease_slider(1))
 
-root.bind("<Control-w>", lambda event: increase_slider(1))
-root.bind("<Control-s>", lambda event: decrease_slider(1))
+root.bind("<Shift-W>", lambda event: helpers.increase_slider(2))
+root.bind("<Shift-S>", lambda event: helpers.decrease_slider(2))
 
-root.bind("<Shift-W>", lambda event: increase_slider(2))
-root.bind("<Shift-S>", lambda event: decrease_slider(2))
+root.bind("<w>", lambda event: helpers.increase_slider(3))
+root.bind("<s>", lambda event: helpers.decrease_slider(3))
 
-root.bind("w", lambda event: increase_slider(3))
-root.bind("s", lambda event: decrease_slider(3))
+root.bind("<e>", lambda event: helpers.increase_slider(4))
+root.bind("<q>", lambda event: helpers.decrease_slider(4))
 
-root.bind("e", lambda event: increase_slider(4))
-root.bind("q", lambda event: decrease_slider(4))
-
-root.bind("<space>", lambda event: increase_slider(5))
-root.bind("z", lambda event: decrease_slider(5))
+root.bind("<space>", lambda event: helpers.increase_slider(5))
+root.bind("z", lambda event: helpers.decrease_slider(5))
 
 # Create sliders
 create_sliders()
