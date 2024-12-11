@@ -102,7 +102,7 @@ void loop() {
   }
 
   static uint32_t tmr;
-  if (millis() - tmr >= 3000) {
+  if (millis() - tmr >= 5000) {
     ultra_sonic();
     tmr = millis();
   }
@@ -116,15 +116,15 @@ void loop() {
 
 void ultra_sonic() {
   digitalWrite(trigPin, LOW);
-  delayMicroseconds(2);
+  delayMicroseconds(5);
   digitalWrite(trigPin, HIGH);
   delayMicroseconds(10);
   digitalWrite(trigPin, LOW);
 
   duration = pulseIn(echoPin, HIGH);
-  distance = duration * 0.034 / 2;
+  distance = (duration / 2) / 29.1;;
 
-  if (duration > 0 && ultrasonicConnected) {
+  if (distance > 0 && ultrasonicConnected) {
     Serial.print("Distance: ");
     Serial.println(distance);
   } else {
@@ -133,7 +133,7 @@ void ultra_sonic() {
 }
 
 void checkServoStatus() {
-  float averagePower[3] = {70.0, 400.0, 70.0}; // Set average power for each channel
+  float averagePower[3] = {70.0, 200.0, 65.0}; // Set average power for each channel
 
   for (int ch = 0; ch < 3; ch++) {
     float currentPower = INA.getPower_mW(ch);
@@ -185,20 +185,32 @@ void checkServoStatus() {
 
 void checkUltrasonicSensor() {
   digitalWrite(trigPin, LOW);
-  delayMicroseconds(2);
+  delayMicroseconds(5);
   digitalWrite(trigPin, HIGH);
   delayMicroseconds(10);
   digitalWrite(trigPin, LOW);
 
   duration = pulseIn(echoPin, HIGH);
+  distance =  (duration / 2) / 29.1;;
 
-  if (duration == 0 && ultrasonicConnected) {
-    ultrasonicConnected = false;
-    Serial.println("Error: Ultrasonic sensor disconnected.");
-  } else if (duration > 0 && !ultrasonicConnected) {
-    ultrasonicConnected = true;
-    Serial.println("Message: Ultrasonic sensor connected.");
+  static int debounceCounter = 0;
+  const int debounceThreshold = 3;
+
+  if (distance == 0) {
+    debounceCounter++;
+    if (debounceCounter >= debounceThreshold) {
+      ultrasonicConnected = false;
+      Serial.println("Error: Ultrasonic sensor disconnected.");
+      debounceCounter = 0;
+    }
+  } else {
+    debounceCounter = 0;
+    if (!ultrasonicConnected) {
+      ultrasonicConnected = true;
+      Serial.println("Message: Ultrasonic sensor connected.");
+    }
   }
+  Serial.println("Message: Ultrasonic checked.");
 }
 
 void writeInaInfo() {
