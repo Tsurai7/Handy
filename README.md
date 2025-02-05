@@ -9,6 +9,7 @@
     - MG90s servo x3
     - ESP32 cam 
     - HC-SR04 (ultrasonic sensor)
+    - INA3221
     
 ### Functionality
     - Realtime hand interaction
@@ -17,6 +18,12 @@
     - Detecting objects
     - Detecting distance to object
 
+### Photos
+#### Hand
+![Hand Photo](Handy.Assets/robotic-arm.jpg)
+
+#### UI
+![UI Photo](Handy.Assets/UI.png)
 
 # Resources
     - AI Model - YOLOv4 (weights: [https://github.com/AlexeyAB/darknet/releases/download/darknet_yolo_v3_optimal/yolov4.weights])
