@@ -226,5 +226,5 @@ void writeInaInfo() {
     Serial.print(" mA | Power: ");
     Serial.print(INA.getPower_mW(ch), 3);
     Serial.println(" mW");
-  }
+
 }

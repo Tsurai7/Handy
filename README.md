@@ -20,10 +20,10 @@
 
 ### Photos
 #### Hand
-![Hand Photo](Handy.Assets/robotic-arm.jpg)
+![Hand Photo](img/robotic-arm.jpg)
 
 #### UI
-![UI Photo](Handy.Assets/UI.png)
+![UI Photo](img/UI.png)
 
 # Resources
     - AI Model - YOLOv4 (weights: [https://github.com/AlexeyAB/darknet/releases/download/darknet_yolo_v3_optimal/yolov4.weights])
