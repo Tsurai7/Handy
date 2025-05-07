@@ -1,4 +1,5 @@
 import json
+import math
 import time
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -72,7 +73,7 @@ def create_slider(root, row, slider_number):
     else:
         slider = ttk.Scale(
             root,
-            from_=0,
+            from_=17,
             to=180,
             orient="horizontal",
             length=400,
@@ -374,6 +375,122 @@ create_sliders()
 
 video_thread = threading.Thread(target=update_image_in_thread, daemon=True)
 video_thread.start()
+
+base_height = 12  # см - высота основания
+link_lengths = [7, 12, 26]  # длины звеньев
+current_angles_deg = [90, 90, 90]  # начальные углы для суставов 1, 2, 4
+
+def degrees_to_radians(angles_deg):
+    return [math.radians(a) for a in angles_deg]
+
+def radians_to_degrees(angles_rad):
+    return [math.degrees(a) for a in angles_rad]
+
+def forward_kinematics(angles_deg):
+    theta1, theta2, theta3 = degrees_to_radians(angles_deg)
+    x1 = link_lengths[0] * math.cos(theta1)
+    y1 = link_lengths[0] * math.sin(theta1)
+    z1 = base_height
+    x2 = x1 + link_lengths[1] * math.cos(theta1 + theta2)
+    y2 = y1 + link_lengths[1] * math.sin(theta1 + theta2)
+    z2 = z1
+    x3 = x2 + link_lengths[2] * math.cos(theta1 + theta2 + theta3)
+    y3 = y2 + link_lengths[2] * math.sin(theta1 + theta2 + theta3)
+    z3 = z2
+    return (x3, y3, z3)
+
+def move_gripper_direction(direction, step=1.0):
+    global current_angles_deg
+    current_angles_rad = degrees_to_radians(current_angles_deg)
+    theta1, theta2, theta3 = current_angles_rad
+
+    J11 = -link_lengths[0] * math.sin(theta1) - link_lengths[1] * math.sin(theta1 + theta2) - link_lengths[2] * math.sin(theta1 + theta2 + theta3)
+    J12 = -link_lengths[1] * math.sin(theta1 + theta2) - link_lengths[2] * math.sin(theta1 + theta2 + theta3)
+    J13 = -link_lengths[2] * math.sin(theta1 + theta2 + theta3)
+
+    J21 = link_lengths[0] * math.cos(theta1) + link_lengths[1] * math.cos(theta1 + theta2) + link_lengths[2] * math.cos(theta1 + theta2 + theta3)
+    J22 = link_lengths[1] * math.cos(theta1 + theta2) + link_lengths[2] * math.cos(theta1 + theta2 + theta3)
+    J23 = link_lengths[2] * math.cos(theta1 + theta2 + theta3)
+
+    det = J11 * J22 - J12 * J21
+    if abs(det) < 1e-6:
+        print("Якобиан вырожден. Невозможно двигать.")
+        return current_angles_deg
+
+    dx, dy, dz = direction
+    dtheta1 = (J22 * dx - J12 * dy) / det * math.radians(step)
+    dtheta2 = (-J21 * dx + J11 * dy) / det * math.radians(step)
+    dtheta3 = 0  # z не используется
+
+    new_angles_rad = [
+        theta1 + dtheta1,
+        theta2 + dtheta2,
+        theta3 + dtheta3
+    ]
+
+    new_angles_deg = radians_to_degrees(new_angles_rad)
+    new_angles_deg = [max(0, min(180, angle)) for angle in new_angles_deg]
+    current_angles_deg = new_angles_deg
+    return new_angles_deg
+
+def apply_angles_to_servos(angles_deg):
+    """Применяет углы к слайдерам 1, 2, 4"""
+    servo_mapping = [1, 2, 4]
+    for servo_index, angle in zip(servo_mapping, angles_deg):
+        sliders[servo_index].set(angle)
+        on_scale_change(servo_index, angle)
+
+def move_and_update(direction):
+    new_angles = move_gripper_direction(direction, step=2)
+    apply_angles_to_servos(new_angles)
+    print(new_angles)
+
+def inverse_kinematics(target_x, target_y):
+    """Вычисляет углы theta1, theta2, theta3 для достижения точки (target_x, target_y)"""
+    L1, L2, L3 = link_lengths
+    x, y = target_x, target_y
+
+    dist = math.hypot(x, y)
+    if dist > L1 + L2 + L3:
+        print("Точка вне досягаемости")
+        return None
+
+    # Учитываем, что theta3 = 0 для упрощения
+    theta3 = 0
+
+    # Длина между первым и третьим суставами
+    L23 = L2 + L3
+
+    # Косинус угла при L1
+    cos_angle2 = (x**2 + y**2 - L1**2 - L23**2) / (2 * L1 * L23)
+    if not -1 <= cos_angle2 <= 1:
+        print("Невозможно достичь точки: cos вне диапазона")
+        return None
+
+    theta2 = math.acos(cos_angle2)
+
+    # Найдём theta1
+    k1 = L1 + L23 * math.cos(theta2)
+    k2 = L23 * math.sin(theta2)
+    theta1 = math.atan2(y, x) - math.atan2(k2, k1)
+
+    # Переводим в градусы
+    theta1_deg = math.degrees(theta1)
+    theta2_deg = math.degrees(theta2)
+    theta3_deg = math.degrees(theta3)
+
+    # Ограничение диапазонов
+    angles = [theta1_deg, theta2_deg, theta3_deg]
+    angles = [max(0, min(180, a)) for a in angles]
+
+    return angles
+
+
+# Биндим стрелки на движение схвата
+root.bind("<Left>", lambda event: move_and_update((-5, 0, 0)))
+root.bind("<Right>", lambda event: move_and_update((5, 0, 0)))
+root.bind("<Up>", lambda event: move_and_update((0, 5, 0)))
+root.bind("<Down>", lambda event: move_and_update((0, -5, 0)))
 
 # Run main loop
 root.mainloop()
